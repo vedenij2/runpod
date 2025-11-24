@@ -1,22 +1,27 @@
 {
-  "name": "gonka-nonce-calculator",
-  "description": "Serverless nonce calculator for Gonka decentralized network using LLaMA model inference",
-  "version": "1.0.0",
-  "runtime": {
-    "dockerfile": "Dockerfile",
-    "handler": "handler.py"
-  },
-  "env": {
-    "LOG_LEVEL": "INFO"
-  },
-  "min_gpu_count": 1,
-  "min_gpu_memory_gb": 24,
-  "recommended_gpu": "NVIDIA RTX A6000",
-  "scaling": {
-    "min_workers": 0,
-    "max_workers": 10
-  },
-  "timeout": 600,
-  "categories": ["AI/ML", "Blockchain"],
-  "tags": ["pytorch", "llama", "proof-of-compute", "blockchain"]
+  "title": "Gonka Nonce Calculator",
+  "description": "Serverless nonce calculator for Gonka decentralized network using LLaMA model inference for Proof-of-Compute validation",
+  "type": "serverless",
+  "category": "language",
+  "config": {
+    "runsOn": "GPU",
+    "containerDiskInGb": 50,
+    "gpuCount": 1,
+    "allowedCudaVersions": ["12.1", "12.0", "11.8"],
+    "env": [
+      {
+        "name": "LOG_LEVEL",
+        "type": "string",
+        "default": "INFO",
+        "description": "Logging level (DEBUG, INFO, WARNING, ERROR)"
+      },
+      {
+        "name": "PYTORCH_CUDA_ALLOC_CONF",
+        "type": "string",
+        "default": "max_split_size_mb:512",
+        "description": "PyTorch CUDA memory allocator configuration",
+        "advanced": true
+      }
+    ]
+  }
 }

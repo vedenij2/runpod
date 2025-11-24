@@ -1,5 +1,7 @@
 # Gonka Nonce Calculator - Runpod Serverless
 
+[![Runpod](https://api.runpod.io/badge/vedenij/runpod)](https://console.runpod.io/hub/vedenij/runpod)
+
 Serverless nonce calculator for Gonka decentralized network using LLaMA model inference. This service calculates proof-of-compute nonces for small nodes during Random Confirmation PoC phases.
 
 ## Overview
