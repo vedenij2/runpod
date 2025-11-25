@@ -9,3 +9,5 @@ runpod
 
 # Additional dependencies
 tiktoken>=0.8.0
+fire>=0.5.0
+sympy>=1.12
