@@ -4,7 +4,6 @@ import time
 import logging
 from typing import Dict, Any
 
-import torch
 import runpod
 
 # Add src to path
@@ -108,6 +107,8 @@ def handler(event: Dict[str, Any]):
         params_dict = input_data["params"]
 
         # Auto-detect all available GPUs (ignore client's devices parameter)
+        # Import torch here (not at module level) to avoid CUDA init issues in Runpod
+        import torch
         gpu_count = torch.cuda.device_count()
         devices = [f"cuda:{i}" for i in range(gpu_count)]
 
