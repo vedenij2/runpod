@@ -1,8 +1,7 @@
 import time
 import queue
-import multiprocessing as mp
-from multiprocessing import Process, Queue, Event
-from typing import List, Iterator, Dict, Any
+import threading
+from typing import List, Dict, Any
 from concurrent.futures import Future
 
 from pow.data import ProofBatch
@@ -12,12 +11,6 @@ from pow.random import get_target
 from common.logger import create_logger
 
 logger = create_logger(__name__)
-
-# Use spawn method for CUDA compatibility
-try:
-    mp.set_start_method('spawn', force=True)
-except RuntimeError:
-    pass  # Already set
 
 
 class NonceIterator:
@@ -30,21 +23,23 @@ class NonceIterator:
         self.n_workers = n_workers
         self.start_nonce = start_nonce
         self._current_x = 0
+        self._lock = threading.Lock()
 
     def __iter__(self):
         return self
 
     def __next__(self) -> int:
-        # Nonce = start + worker_id + current_x * n_workers
-        # This ensures non-overlapping nonces across workers
-        value = self.start_nonce + self.worker_id + self._current_x * self.n_workers
-        self._current_x += 1
-        return value
+        with self._lock:
+            # Nonce = start + worker_id + current_x * n_workers
+            # This ensures non-overlapping nonces across workers
+            value = self.start_nonce + self.worker_id + self._current_x * self.n_workers
+            self._current_x += 1
+            return value
 
 
-def worker_process(
+def worker_thread(
     worker_id: int,
-    params_dict: Dict[str, Any],
+    params: Params,
     block_hash: str,
     block_height: int,
     public_key: str,
@@ -53,24 +48,18 @@ def worker_process(
     devices: List[str],
     start_nonce: int,
     n_workers: int,
-    result_queue: Queue,
-    stop_event: Event,
-    ready_event: Event,
+    result_queue: queue.Queue,
+    stop_event: threading.Event,
+    ready_event: threading.Event,
     max_duration: float = 420.0,  # 7 minutes default
 ):
     """
-    Worker process that runs on a specific GPU group.
+    Worker thread that runs on a specific GPU group.
     Generates nonces and puts results into result_queue.
-
-    Each worker uses its assigned GPU(s) directly without CUDA_VISIBLE_DEVICES
-    remapping, since all workers run in separate processes and torch handles
-    device assignment correctly.
     """
     import torch
 
     try:
-        params = Params(**params_dict)
-
         logger.info(f"[Worker {worker_id}] Starting on devices {devices}, batch_size={batch_size}")
 
         # Initialize compute for this worker's GPU(s)
@@ -187,7 +176,8 @@ def worker_process(
 
 class ParallelWorkerManager:
     """
-    Manages multiple worker processes for parallel nonce generation.
+    Manages multiple worker threads for parallel nonce generation.
+    Uses threading instead of multiprocessing to avoid spawn issues.
     """
     def __init__(
         self,
@@ -212,24 +202,22 @@ class ParallelWorkerManager:
         self.max_duration = max_duration
         self.n_workers = len(gpu_groups)
 
-        self.result_queue = Queue(maxsize=1000)
-        self.stop_event = Event()
-        self.workers: List[Process] = []
-        self.ready_events: List[Event] = []
+        self.result_queue = queue.Queue(maxsize=1000)
+        self.stop_event = threading.Event()
+        self.workers: List[threading.Thread] = []
+        self.ready_events: List[threading.Event] = []
 
     def start(self):
-        """Start all worker processes"""
-        params_dict = self.params.__dict__
-
+        """Start all worker threads"""
         for worker_id, devices in enumerate(self.gpu_groups):
-            ready_event = Event()
+            ready_event = threading.Event()
             self.ready_events.append(ready_event)
 
-            worker = Process(
-                target=worker_process,
+            worker = threading.Thread(
+                target=worker_thread,
                 args=(
                     worker_id,
-                    params_dict,
+                    self.params,
                     self.block_hash,
                     self.block_height,
                     self.public_key,
@@ -244,12 +232,13 @@ class ParallelWorkerManager:
                     self.max_duration,
                 ),
                 daemon=True,
+                name=f"Worker-{worker_id}",
             )
             self.workers.append(worker)
             worker.start()
-            logger.info(f"Started worker {worker_id} (PID {worker.pid}) on devices {devices}")
+            logger.info(f"Started worker {worker_id} on devices {devices}")
 
-    def wait_for_ready(self, timeout: float = 120.0) -> bool:
+    def wait_for_ready(self, timeout: float = 300.0) -> bool:
         """Wait for all workers to be ready (models loaded)"""
         start = time.time()
         for i, event in enumerate(self.ready_events):
@@ -283,8 +272,7 @@ class ParallelWorkerManager:
         for worker in self.workers:
             worker.join(timeout=10)
             if worker.is_alive():
-                logger.warning(f"Worker {worker.pid} did not stop, terminating")
-                worker.terminate()
+                logger.warning(f"Worker {worker.name} did not stop in time")
 
         logger.info("All workers stopped")
 
