@@ -19,14 +19,32 @@ def _get_architecture_config(device_id: int = 0):
     return _gpu_arch_module.get_architecture_config(device_id)
 
 
+def _params_match_model(params: Params, reference: Params) -> bool:
+    """
+    Compare params by core model architecture, ignoring optimization flags like use_fp8.
+    This ensures batch size estimation works correctly when FP8 is enabled.
+    """
+    return (
+        params.dim == reference.dim and
+        params.n_layers == reference.n_layers and
+        params.n_heads == reference.n_heads and
+        params.n_kv_heads == reference.n_kv_heads and
+        params.vocab_size == reference.vocab_size and
+        params.ffn_dim_multiplier == reference.ffn_dim_multiplier and
+        params.multiple_of == reference.multiple_of and
+        params.seq_len == reference.seq_len
+    )
+
+
 def get_batch_size_for_gpu_group(gpu_group: GpuGroup, params: Params, target_memory_usage: float = 0.9) -> int:
-    if params == PARAMS_V1:
+    # Compare by model architecture, not exact equality (ignore use_fp8 flag)
+    if _params_match_model(params, PARAMS_V1):
         return get_batch_size_from_memory(
             target_memory_usage=target_memory_usage,
             device_id=gpu_group.primary_device
         )
 
-    if params == PARAMS_V2:
+    if _params_match_model(params, PARAMS_V2):
         return estimate_batch_size(gpu_group, params, target_memory_usage)
 
     return 100
